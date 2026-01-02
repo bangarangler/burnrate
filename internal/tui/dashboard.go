@@ -9,11 +9,61 @@ import (
 	"github.com/bangarangler/burnrate/internal/config"
 	"github.com/bangarangler/burnrate/internal/pricing"
 	"github.com/bangarangler/burnrate/internal/tracker"
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// KeyMap defines the keybindings for the dashboard
+type KeyMap struct {
+	SessionView key.Binding
+	TodayView   key.Binding
+	WeekView    key.Binding
+	Reset       key.Binding
+	Quit        key.Binding
+}
+
+// DefaultKeyMap returns the default keybindings
+func DefaultKeyMap() KeyMap {
+	return KeyMap{
+		SessionView: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "session"),
+		),
+		TodayView: key.NewBinding(
+			key.WithKeys("t"),
+			key.WithHelp("t", "today"),
+		),
+		WeekView: key.NewBinding(
+			key.WithKeys("w"),
+			key.WithHelp("w", "week"),
+		),
+		Reset: key.NewBinding(
+			key.WithKeys("r"),
+			key.WithHelp("r", "reset"),
+		),
+		Quit: key.NewBinding(
+			key.WithKeys("q", "ctrl+c"),
+			key.WithHelp("q", "quit"),
+		),
+	}
+}
+
+// ShortHelp returns keybindings to be shown in the mini help view
+func (k KeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.SessionView, k.TodayView, k.WeekView, k.Reset, k.Quit}
+}
+
+// FullHelp returns keybindings for the expanded help view
+func (k KeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.SessionView, k.TodayView, k.WeekView},
+		{k.Reset, k.Quit},
+	}
+}
 
 // Color palette
 var (
@@ -73,6 +123,11 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(borderColor)
 
+	chartBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(borderColor).
+			Padding(0, 1)
+
 	footerStyle = lipgloss.NewStyle().
 			Foreground(mutedColor).
 			Padding(1, 0)
@@ -92,6 +147,8 @@ var (
 type model struct {
 	table       table.Model
 	progress    progress.Model
+	help        help.Model
+	keys        KeyMap
 	total       float64
 	burnRate    float64
 	startTime   time.Time
@@ -134,6 +191,8 @@ func InitialModel() model {
 	return model{
 		table:      t,
 		progress:   prog,
+		help:       help.New(),
+		keys:       DefaultKeyMap(),
 		startTime:  time.Now(),
 		activeView: "session",
 		config:     config.Load(),
@@ -188,6 +247,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, tickCmd()
 
+	case tea.WindowSizeMsg:
+		m.help.Width = msg.Width
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -202,6 +264,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeView = "today"
 		case "w":
 			m.activeView = "week"
+		case "?":
+			m.help.ShowAll = !m.help.ShowAll
 		}
 	}
 
@@ -272,6 +336,12 @@ func (m model) View() string {
 		)
 	}
 
+	// Historical Spend Chart (Today/Week only)
+	var chart string
+	if m.activeView != "session" {
+		chart = m.renderHistoryChart()
+	}
+
 	// Tools panel (Always visible)
 	toolsPanel := m.renderToolsPanel()
 
@@ -279,20 +349,100 @@ func (m model) View() string {
 	usageTable := tableBoxStyle.Render(m.table.View())
 
 	// Footer
-	footer := footerStyle.Render("[s/t/w] switch view  [q] quit  [r] reset")
+	footer := footerStyle.Render(m.help.View(m.keys))
+
+	// Layout depends on view
+	var mainContent string
+	if m.activeView == "session" {
+		mainContent = lipgloss.JoinVertical(lipgloss.Left,
+			stats,
+			"",
+			toolsPanel,
+			"",
+			usageTable,
+		)
+	} else {
+		mainContent = lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.JoinHorizontal(lipgloss.Top,
+				stats,
+				"  ",
+				chart,
+			),
+			"",
+			toolsPanel,
+			"",
+			usageTable,
+		)
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		"",
 		header,
 		tabs,
 		"",
-		stats,
-		"",
-		toolsPanel,
-		"",
-		usageTable,
+		mainContent,
 		footer,
 	)
+}
+
+func (m model) renderHistoryChart() string {
+	days := 7
+	if m.activeView == "week" {
+		days = 7
+	} else if m.activeView == "today" {
+		days = 7 // Show context for today as well
+	}
+
+	dailySpends, err := tracker.Global.GetDailySpend(days)
+	if err != nil || len(dailySpends) == 0 {
+		return chartBoxStyle.Render("No history available")
+	}
+
+	// Find max for scaling
+	var maxCost float64
+	for _, ds := range dailySpends {
+		if ds.Cost > maxCost {
+			maxCost = ds.Cost
+		}
+	}
+	if maxCost == 0 {
+		maxCost = 1.0 // Avoid div by zero
+	}
+
+	// Simple ASCII Chart
+	var bars []string
+	bars = append(bars, lipgloss.NewStyle().Bold(true).Render("History (Last 7 Days)"))
+
+	for _, ds := range dailySpends {
+		// Parse date to just show Day/Month or short Day
+		t, _ := time.Parse("2006-01-02", ds.Date)
+		label := t.Format("Mon")
+
+		barLen := int((ds.Cost / maxCost) * 20)
+		if barLen == 0 && ds.Cost > 0 {
+			barLen = 1
+		}
+
+		barChar := "▇"
+		bar := strings.Repeat(barChar, barLen)
+
+		// Color based on budget ratio (rough approx)
+		color := successColor
+		if ds.Cost > m.config.DailyBudget {
+			color = errorColor
+		} else if ds.Cost > m.config.DailyBudget*0.8 {
+			color = warningColor
+		}
+
+		line := fmt.Sprintf("%s %s $%.2f",
+			lipgloss.NewStyle().Width(3).Render(label),
+			lipgloss.NewStyle().Foreground(color).Render(bar),
+			ds.Cost,
+		)
+		bars = append(bars, line)
+	}
+
+	return chartBoxStyle.Render(strings.Join(bars, "\n"))
 }
 
 func (m model) renderTab(label, key string) string {

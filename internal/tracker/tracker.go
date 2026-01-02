@@ -234,3 +234,8 @@ func (t *Tracker) GetHistoricalUsage(window string) ([]Usage, float64, error) {
 
 	return usages, total, nil
 }
+
+// GetDailySpend returns the daily spend for the last N days
+func (t *Tracker) GetDailySpend(days int) ([]storage.DailySpend, error) {
+	return storage.GetDailyUsage(days)
+}

@@ -128,19 +128,30 @@ func GetUsageSummary(since int64) (map[string]struct {
 	return usageByModel, totalCost, nil
 }
 
-// GetDailyUsage returns aggregated usage for the last N days
-func GetDailyUsage(days int) (map[string]float64, error) {
+// DailySpend represents the total cost for a specific day
+type DailySpend struct {
+	Date string
+	Cost float64
+}
+
+// GetDailyUsage returns aggregated usage for the last N days, sorted by date ascending
+func GetDailyUsage(days int) ([]DailySpend, error) {
 	if DB == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	cutoff := time.Now().AddDate(0, 0, -days).Unix()
+	// Get N days of history including today
+	cutoff := time.Now().AddDate(0, 0, -days+1).Truncate(24 * time.Hour).Unix()
+
+	// We want to ensure we have entries for all days, even if 0 cost.
+	// But for now, let's just get the data we have and fill gaps in the UI or here.
+	// SQLITE's unixepoch requires seconds.
 	query := `
 	SELECT date(timestamp, 'unixepoch', 'localtime') as day, SUM(cost) 
 	FROM usage_events 
 	WHERE timestamp >= ? 
 	GROUP BY day 
-	ORDER BY day DESC
+	ORDER BY day ASC
 	`
 
 	rows, err := DB.Query(query, cutoff)
@@ -149,14 +160,14 @@ func GetDailyUsage(days int) (map[string]float64, error) {
 	}
 	defer rows.Close()
 
-	dailyCosts := make(map[string]float64)
+	var results []DailySpend
 	for rows.Next() {
 		var day string
 		var cost float64
 		if err := rows.Scan(&day, &cost); err != nil {
 			return nil, err
 		}
-		dailyCosts[day] = cost
+		results = append(results, DailySpend{Date: day, Cost: cost})
 	}
-	return dailyCosts, nil
+	return results, nil
 }
