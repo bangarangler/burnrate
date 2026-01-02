@@ -72,6 +72,62 @@ func RecordUsage(tool, model string, prompt, completion int, cost float64) error
 	return err
 }
 
+// GetUsageSummary returns aggregated usage for a specific time window
+// since is a unix timestamp
+func GetUsageSummary(since int64) (map[string]struct {
+	PromptTokens     int
+	CompletionTokens int
+	Cost             float64
+}, float64, error) {
+	if DB == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	query := `
+	SELECT model, SUM(prompt_tokens), SUM(completion_tokens), SUM(cost)
+	FROM usage_events
+	WHERE timestamp >= ?
+	GROUP BY model
+	ORDER BY SUM(cost) DESC
+	`
+
+	rows, err := DB.Query(query, since)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	usageByModel := make(map[string]struct {
+		PromptTokens     int
+		CompletionTokens int
+		Cost             float64
+	})
+	var totalCost float64
+
+	for rows.Next() {
+		var model string
+		var prompt, completion int
+		var cost float64
+
+		if err := rows.Scan(&model, &prompt, &completion, &cost); err != nil {
+			return nil, 0, err
+		}
+
+		usageByModel[model] = struct {
+			PromptTokens     int
+			CompletionTokens int
+			Cost             float64
+		}{
+			PromptTokens:     prompt,
+			CompletionTokens: completion,
+			Cost:             cost,
+		}
+		totalCost += cost
+	}
+
+	return usageByModel, totalCost, nil
+}
+
 // GetDailyUsage returns aggregated usage for the last N days
 func GetDailyUsage(days int) (map[string]float64, error) {
 	if DB == nil {

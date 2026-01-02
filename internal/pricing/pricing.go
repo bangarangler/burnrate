@@ -155,6 +155,13 @@ func UpdatePricing() error {
 	return nil
 }
 
+// GetLastFetchTime returns the time of the last successful API fetch
+func GetLastFetchTime() time.Time {
+	fetchMutex.Lock()
+	defer fetchMutex.Unlock()
+	return lastFetchTime
+}
+
 func CalculateCost(model string, promptTokens, completionTokens int) float64 {
 	// Handle free models (OpenRouter :free suffix, etc.)
 	if strings.HasSuffix(model, ":free") || strings.Contains(model, ":free ") {

@@ -193,3 +193,44 @@ func (t *Tracker) GetToolStatus(toolName string) *ToolStatus {
 	}
 	return t.ToolStatuses[toolName]
 }
+
+// GetHistoricalUsage returns usage summary for Today or Week from DB
+func (t *Tracker) GetHistoricalUsage(window string) ([]Usage, float64, error) {
+	var since int64
+	now := time.Now()
+
+	switch window {
+	case "today":
+		// Midnight today
+		since = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix()
+	case "week":
+		// 7 days ago
+		since = now.AddDate(0, 0, -7).Unix()
+	default:
+		return nil, 0, fmt.Errorf("invalid window: %s", window)
+	}
+
+	summary, total, err := storage.GetUsageSummary(since)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Convert to []Usage for UI
+	var usages []Usage
+	for model, data := range summary {
+		usages = append(usages, Usage{
+			Model:            model,
+			PromptTokens:     data.PromptTokens,
+			CompletionTokens: data.CompletionTokens,
+			TotalTokens:      data.PromptTokens + data.CompletionTokens,
+			Cost:             data.Cost,
+		})
+	}
+
+	// Sort by cost desc
+	sort.Slice(usages, func(i, j int) bool {
+		return usages[i].Cost > usages[j].Cost
+	})
+
+	return usages, total, nil
+}
