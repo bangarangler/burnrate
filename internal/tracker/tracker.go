@@ -26,6 +26,7 @@ type ToolStatus struct {
 	DashboardURL  string    // External dashboard URL (Tier 2 tools)
 	EventCount    int       // Number of events tracked this session
 	LastEventTime time.Time // Timestamp of last event
+	TotalCost     float64   // Total cost tracked for this tool in current session
 }
 
 type Usage struct {
@@ -79,6 +80,27 @@ func (t *Tracker) AddUsage(model string, prompt, completion int, cost float64) {
 // AddUsageWithTool adds usage and records it to the database
 func (t *Tracker) AddUsageWithTool(tool, model string, prompt, completion int, cost float64) {
 	t.AddUsage(model, prompt, completion, cost)
+
+	// Update tool stats
+	t.mu.Lock()
+	if t.ToolStatuses == nil {
+		t.ToolStatuses = make(map[string]*ToolStatus)
+	}
+	// We need to ensure the tool exists in statuses first, but typically parser inits it first.
+	// If not, we should probably auto-register it?
+	// For now, let's assume parsers register tools. But we can be safe.
+	if status, ok := t.ToolStatuses[tool]; ok {
+		status.TotalCost += cost
+	} else {
+		// Auto-register if not present (defensive)
+		t.ToolStatuses[tool] = &ToolStatus{
+			Name:      tool,
+			Tier:      TierFullTracking,
+			Status:    "active",
+			TotalCost: cost,
+		}
+	}
+	t.mu.Unlock()
 
 	// Record to history DB
 	// We ignore errors here to avoid disrupting the UI flow, but we could log them

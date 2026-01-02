@@ -504,6 +504,10 @@ func formatToolStatus(s *tracker.ToolStatus) string {
 	var eventInfo string
 	if s.Tier == tracker.TierFullTracking && s.EventCount > 0 {
 		eventInfo = fmt.Sprintf("%d events", s.EventCount)
+		// Show cost if available
+		if s.TotalCost > 0 {
+			eventInfo += fmt.Sprintf(" ($%.4f)", s.TotalCost)
+		}
 		if !s.LastEventTime.IsZero() {
 			eventInfo += "  " + formatRelativeTime(s.LastEventTime)
 		}

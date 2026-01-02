@@ -179,3 +179,35 @@ func CalculateCost(model string, promptTokens, completionTokens int) float64 {
 
 	return inputCost + outputCost
 }
+
+// CalculateHypotheticalCost calculates what the cost would have been with a different model
+func CalculateHypotheticalCost(targetModel string, promptTokens, completionTokens int) (float64, error) {
+	p, ok := ModelPricing[targetModel]
+	if !ok {
+		// Try fuzzy matching or common aliases
+		for k, v := range ModelPricing {
+			if strings.EqualFold(k, targetModel) || strings.Contains(strings.ToLower(k), strings.ToLower(targetModel)) {
+				p = v
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return 0, fmt.Errorf("model %s not found", targetModel)
+		}
+	}
+
+	inputCost := float64(promptTokens) / 1_000_000 * p.Input
+	outputCost := float64(completionTokens) / 1_000_000 * p.Output
+
+	return inputCost + outputCost, nil
+}
+
+// GetAvailableModels returns a list of model IDs available for comparison
+func GetAvailableModels() []string {
+	var models []string
+	for k := range ModelPricing {
+		models = append(models, k)
+	}
+	return models
+}
