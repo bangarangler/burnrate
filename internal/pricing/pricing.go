@@ -164,7 +164,8 @@ func GetLastFetchTime() time.Time {
 
 func CalculateCost(model string, promptTokens, completionTokens int) float64 {
 	// Handle free models (OpenRouter :free suffix, etc.)
-	if strings.HasSuffix(model, ":free") || strings.Contains(model, ":free ") {
+	// Check for ":free" anywhere in the string (handles suffixes and ":free (Provider)" format)
+	if strings.Contains(model, ":free") {
 		return 0.0
 	}
 
