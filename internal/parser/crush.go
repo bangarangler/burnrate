@@ -242,7 +242,9 @@ func processCrushDB(dbPath string) {
 		}
 
 		// Use pre-calculated cost if available, otherwise calculate
-		if costDelta <= 0 && (promptDelta > 0 || completionDelta > 0) {
+		if strings.Contains(model, ":free") {
+			costDelta = 0.0
+		} else if costDelta <= 0 && (promptDelta > 0 || completionDelta > 0) {
 			costDelta = pricing.CalculateCost(model, promptDelta, completionDelta)
 		}
 
