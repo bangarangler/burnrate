@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/bangarangler/burnrate/internal/parser"
+	"github.com/bangarangler/burnrate/internal/pricing"
 	"github.com/bangarangler/burnrate/internal/tracker"
 	"github.com/bangarangler/burnrate/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,6 +25,13 @@ var dashboardCmd = &cobra.Command{
 	Short: "Launch the live cost dashboard",
 	Long:  `Opens a terminal dashboard showing your current AI spend, burn rate, and tool status.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Initialize pricing (async fetch)
+		go func() {
+			// This will update the pricing map in the background
+			// If it fails, we just continue with hardcoded defaults
+			_ = pricing.UpdatePricing()
+		}()
+
 		// Initialize tool watchers - they now report their own status to tracker
 
 		// OpenCode (Tier 1 - Full Tracking)

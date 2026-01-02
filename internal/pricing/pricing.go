@@ -1,7 +1,15 @@
 // internal/pricing/pricing.go
 package pricing
 
-import "strings"
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
 
 // Prices per 1M tokens (input / output) - latest as of Dec 2025
 var ModelPricing = map[string]struct {
@@ -60,6 +68,91 @@ var ModelPricing = map[string]struct {
 
 	// Azure OpenAI / Copilot (same as OpenAI pricing)
 	// Just use the same model names as OpenAI
+}
+
+// PricingAPIURL is the endpoint for fetching model pricing
+var PricingAPIURL = "https://openrouter.ai/api/v1/models"
+
+var (
+	lastFetchTime time.Time
+	fetchMutex    sync.Mutex
+	cacheDuration = 1 * time.Hour
+)
+
+type openRouterResponse struct {
+	Data []struct {
+		ID      string `json:"id"`
+		Pricing struct {
+			Prompt     string `json:"prompt"`
+			Completion string `json:"completion"`
+		} `json:"pricing"`
+		Name string `json:"name"`
+	} `json:"data"`
+}
+
+// UpdatePricing fetches the latest pricing from the API
+func UpdatePricing() error {
+	fetchMutex.Lock()
+	defer fetchMutex.Unlock()
+
+	// Rate limit checks (simple time-based cache)
+	if time.Since(lastFetchTime) < cacheDuration {
+		return nil
+	}
+
+	resp, err := http.Get(PricingAPIURL)
+	if err != nil {
+		return fmt.Errorf("failed to fetch pricing: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status: %s", resp.Status)
+	}
+
+	var data openRouterResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return fmt.Errorf("failed to decode pricing data: %w", err)
+	}
+
+	for _, model := range data.Data {
+		// OpenRouter pricing is per token, we store per 1M tokens
+		inputPrice, err := strconv.ParseFloat(model.Pricing.Prompt, 64)
+		if err != nil {
+			continue
+		}
+		outputPrice, err := strconv.ParseFloat(model.Pricing.Completion, 64)
+		if err != nil {
+			continue
+		}
+
+		// Convert to per 1M tokens
+		inputPerM := inputPrice * 1_000_000
+		outputPerM := outputPrice * 1_000_000
+
+		// Determine provider from ID or Name
+		provider := "Unknown"
+		if strings.Contains(model.ID, "/") {
+			parts := strings.Split(model.ID, "/")
+			provider = parts[0]
+		} else if strings.Contains(model.Name, ":") {
+			parts := strings.Split(model.Name, ":")
+			provider = parts[0]
+		}
+
+		ModelPricing[model.ID] = struct {
+			Input    float64
+			Output   float64
+			Provider string
+		}{
+			Input:    inputPerM,
+			Output:   outputPerM,
+			Provider: provider,
+		}
+	}
+
+	lastFetchTime = time.Now()
+	return nil
 }
 
 func CalculateCost(model string, promptTokens, completionTokens int) float64 {
