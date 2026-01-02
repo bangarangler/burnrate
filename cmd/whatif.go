@@ -62,14 +62,7 @@ Examples:
 			printComparison(currentCost, hypotheticalCost, targetModel)
 		} else {
 			// Show comparison table with common models
-			commonModels := []string{
-				"gpt-4o",
-				"gpt-4o-mini",
-				"claude-3-5-sonnet-latest",
-				"claude-3-opus-20240229",
-				"gemini-1.5-pro",
-				"deepseek-coder",
-			}
+			commonModels := pricing.CommonModels
 
 			fmt.Printf("Current Session Cost: $%.4f\n", currentCost)
 			fmt.Println(strings.Repeat("-", 50))

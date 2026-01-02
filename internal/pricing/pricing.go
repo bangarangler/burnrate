@@ -211,3 +211,13 @@ func GetAvailableModels() []string {
 	}
 	return models
 }
+
+// CommonModels lists popular models for quick comparison
+var CommonModels = []string{
+	"gpt-4o",
+	"gpt-4o-mini",
+	"claude-3-5-sonnet-latest",
+	"claude-3-opus-20240229",
+	"gemini-1.5-pro",
+	"deepseek-coder",
+}

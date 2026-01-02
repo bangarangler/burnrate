@@ -44,8 +44,10 @@ var processedCrushSessions = make(map[string]int64) // sessionID -> last updated
 
 // Default database paths to check (project-relative first, then common locations)
 var defaultCrushDBPaths = []string{
-	".crush/crush.db",               // Current project directory
-	"~/.local/share/crush/crush.db", // Linux/macOS global (if it exists)
+	".crush/crush.db",                              // Current project directory
+	"~/.local/share/crush/crush.db",                // Linux/macOS global (if it exists)
+	"~/Library/Application Support/Crush/crush.db", // macOS standard
+	"~/Library/Application Support/crush/crush.db", // macOS standard (lowercase)
 }
 
 // StartCrushWatcher watches for updates to Crush SQLite databases

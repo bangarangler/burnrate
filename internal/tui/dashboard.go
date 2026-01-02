@@ -22,8 +22,10 @@ type KeyMap struct {
 	SessionView key.Binding
 	TodayView   key.Binding
 	WeekView    key.Binding
+	WhatIf      key.Binding
 	Reset       key.Binding
 	Quit        key.Binding
+	Back        key.Binding
 }
 
 // DefaultKeyMap returns the default keybindings
@@ -41,6 +43,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("w"),
 			key.WithHelp("w", "week"),
 		),
+		WhatIf: key.NewBinding(
+			key.WithKeys("W"),
+			key.WithHelp("W", "what-if"),
+		),
 		Reset: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "reset"),
@@ -49,19 +55,23 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("q", "ctrl+c"),
 			key.WithHelp("q", "quit"),
 		),
+		Back: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "back"),
+		),
 	}
 }
 
 // ShortHelp returns keybindings to be shown in the mini help view
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.SessionView, k.TodayView, k.WeekView, k.Reset, k.Quit}
+	return []key.Binding{k.SessionView, k.TodayView, k.WeekView, k.WhatIf, k.Reset, k.Quit}
 }
 
 // FullHelp returns keybindings for the expanded help view
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.SessionView, k.TodayView, k.WeekView},
-		{k.Reset, k.Quit},
+		{k.WhatIf, k.Reset, k.Quit},
 	}
 }
 
@@ -138,10 +148,13 @@ var (
 
 	activeTabStyle = lipgloss.NewStyle().
 			Foreground(activeTabColor).
-			Bold(true).
-			Border(lipgloss.NormalBorder(), false, false, true, false).
-			BorderForeground(activeTabColor).
 			Padding(0, 1)
+
+	modalStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(primaryColor).
+			Padding(1, 2).
+			Align(lipgloss.Center)
 )
 
 type model struct {
@@ -155,6 +168,9 @@ type model struct {
 	activeView  string // "session", "today", "week"
 	config      *config.Config
 	pricingTime time.Time
+	showWhatIf  bool
+	width       int
+	height      int
 }
 
 func InitialModel() model {
@@ -249,6 +265,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.help.Width = msg.Width
+		m.width = msg.Width
+		m.height = msg.Height
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -264,6 +282,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeView = "today"
 		case "w":
 			m.activeView = "week"
+		case "W":
+			m.showWhatIf = true
+		case "esc":
+			if m.showWhatIf {
+				m.showWhatIf = false
+				return m, nil
+			}
 		case "?":
 			m.help.ShowAll = !m.help.ShowAll
 		}
@@ -375,6 +400,12 @@ func (m model) View() string {
 		)
 	}
 
+	if m.showWhatIf {
+		modal := m.renderWhatIfModal()
+		// Use manual placement or lipgloss.Place
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+	}
+
 	return lipgloss.JoinVertical(lipgloss.Left,
 		"",
 		header,
@@ -383,6 +414,80 @@ func (m model) View() string {
 		mainContent,
 		footer,
 	)
+}
+
+func (m model) renderWhatIfModal() string {
+	if !m.showWhatIf {
+		return ""
+	}
+
+	// 1. Calculate stats for the *current view*
+	var usages []tracker.Usage
+	var currentCost float64
+
+	switch m.activeView {
+	case "session":
+		usages = tracker.Global.GetUsages()
+		currentCost = tracker.Global.GetSessionCost()
+	case "today", "week":
+		u, c, err := tracker.Global.GetHistoricalUsage(m.activeView)
+		if err == nil {
+			usages = u
+			currentCost = c
+		}
+	}
+
+	var totalPrompt, totalCompletion int
+	for _, u := range usages {
+		totalPrompt += u.PromptTokens
+		totalCompletion += u.CompletionTokens
+	}
+
+	// 2. Build comparison table
+	var lines []string
+	lines = append(lines, titleStyle.Render("What-If Analysis"))
+	lines = append(lines, subtitleStyle.Render(fmt.Sprintf("Comparing cost for %s data", m.activeView)))
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("Current Cost: $%.4f", currentCost))
+	lines = append(lines, "")
+
+	// Header
+	header := fmt.Sprintf("%-25s | %-10s | %s", "Model", "Cost", "Diff")
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Render(header))
+	lines = append(lines, strings.Repeat("-", 50))
+
+	// Rows
+	commonModels := pricing.CommonModels
+	for _, model := range commonModels {
+		cost, err := pricing.CalculateHypotheticalCost(model, totalPrompt, totalCompletion)
+		if err != nil {
+			continue
+		}
+
+		diff := cost - currentCost
+		diffStr := fmt.Sprintf("+$%.4f", diff)
+		color := warningColor
+		if diff < 0 {
+			diffStr = fmt.Sprintf("-$%.4f", -diff)
+			color = successColor
+		} else if diff == 0 {
+			diffStr = "="
+			color = mutedColor
+		}
+
+		row := fmt.Sprintf("%-25s | $%.4f  | %s",
+			model,
+			cost,
+			lipgloss.NewStyle().Foreground(color).Render(diffStr),
+		)
+		lines = append(lines, row)
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, footerStyle.Render("Press 'esc' to close"))
+
+	content := lipgloss.JoinVertical(lipgloss.Center, lines...)
+	return modalStyle.Render(content)
 }
 
 func (m model) renderHistoryChart() string {
