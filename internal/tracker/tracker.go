@@ -3,6 +3,7 @@ package tracker
 
 import (
 	"fmt"
+	"github.com/bangarangler/burnrate/internal/storage"
 	"sort"
 	"sync"
 	"time"
@@ -54,6 +55,12 @@ func (t *Tracker) AddUsage(model string, prompt, completion int, cost float64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	// Try to determine the tool name (this is a bit hacky, better to pass it in)
+	// For now, we'll infer it or default to "Unknown" if we can't find a better way easily without breaking API
+	// Ideally, AddUsage should take a toolName parameter.
+	// Since we can't change the signature easily without updating all callers, let's defer DB writing to a new method
+	// or update the signature. Given we control the codebase, let's update the signature.
+
 	usage := Usage{
 		Model:            model,
 		PromptTokens:     prompt,
@@ -67,6 +74,15 @@ func (t *Tracker) AddUsage(model string, prompt, completion int, cost float64) {
 	t.SessionCost += cost
 
 	fmt.Printf("💸 +$%.4f (%s) | Total: $%.4f\n", cost, model, t.SessionCost)
+}
+
+// AddUsageWithTool adds usage and records it to the database
+func (t *Tracker) AddUsageWithTool(tool, model string, prompt, completion int, cost float64) {
+	t.AddUsage(model, prompt, completion, cost)
+
+	// Record to history DB
+	// We ignore errors here to avoid disrupting the UI flow, but we could log them
+	_ = storage.RecordUsage(tool, model, prompt, completion, cost)
 }
 
 // GetSessionCost returns the current session cost safely

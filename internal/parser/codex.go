@@ -287,7 +287,7 @@ func ParseCodexOTELEvent(eventData []byte) error {
 
 	cost := pricing.CalculateCost(model, input, output)
 
-	tracker.Global.AddUsage(model, input, output, cost)
+	tracker.Global.AddUsageWithTool("Codex", model, input, output, cost)
 	return nil
 }
 

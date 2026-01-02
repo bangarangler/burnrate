@@ -245,7 +245,7 @@ func processCrushDB(dbPath string) {
 		}
 
 		if promptDelta > 0 || completionDelta > 0 {
-			tracker.Global.AddUsage(model, promptDelta, completionDelta, costDelta)
+			tracker.Global.AddUsageWithTool("Crush", model, promptDelta, completionDelta, costDelta)
 			tracker.Global.IncrementToolEvents("Crush")
 		}
 

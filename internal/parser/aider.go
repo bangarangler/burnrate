@@ -213,7 +213,8 @@ func processAiderLogFile(filename string) {
 		// Use the pre-calculated cost from Aider if available
 		cost := event.Properties.Cost
 
-		tracker.Global.AddUsage(
+		tracker.Global.AddUsageWithTool(
+			"Aider",
 			model,
 			event.Properties.PromptTokens,
 			event.Properties.CompletionTokens,

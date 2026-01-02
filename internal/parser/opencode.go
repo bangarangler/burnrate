@@ -166,6 +166,6 @@ func parseMessageFile(filename string) {
 		cost = pricing.CalculateCost(msg.ModelID, input, output)
 	}
 
-	tracker.Global.AddUsage(model, input, output, cost)
+	tracker.Global.AddUsageWithTool("OpenCode", model, input, output, cost)
 	tracker.Global.IncrementToolEvents("OpenCode")
 }

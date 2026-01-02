@@ -10,6 +10,7 @@ import (
 
 	"github.com/bangarangler/burnrate/internal/parser"
 	"github.com/bangarangler/burnrate/internal/pricing"
+	"github.com/bangarangler/burnrate/internal/storage"
 	"github.com/bangarangler/burnrate/internal/tracker"
 	"github.com/bangarangler/burnrate/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -25,6 +26,12 @@ var dashboardCmd = &cobra.Command{
 	Short: "Launch the live cost dashboard",
 	Long:  `Opens a terminal dashboard showing your current AI spend, burn rate, and tool status.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Initialize historical storage
+		if err := storage.InitDB(); err != nil {
+			// Fail gracefully - we can still run without history, but log it
+			// Ideally we'd show a warning in the TUI, but for now we proceed
+		}
+
 		// Initialize pricing (async fetch)
 		go func() {
 			// This will update the pricing map in the background
